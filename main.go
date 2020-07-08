@@ -1,11 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/service/sns"
 )
 
 type Releases []Release
@@ -86,13 +94,13 @@ type Release struct {
 
 func main() {
 
-	fmt.Println(getDownloadCount())
+	lambda.Start(getDownloadCount)
 }
 
-func getDownloadCount() (int, error) {
+func getDownloadCount() error {
 	releases, err := getReleases()
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	count := 0
@@ -105,7 +113,23 @@ func getDownloadCount() (int, error) {
 		}
 	}
 
-	return count, nil
+	cfg, _ := external.LoadDefaultAWSConfig()
+	client := sns.New(cfg)
+
+	input := &sns.PublishInput{
+		Subject:  aws.String("Vermin Weekly Download Status"),
+		Message:  aws.String(fmt.Sprintf("Total download count till the monent is %d\n", count)),
+		TopicArn: aws.String(os.Getenv("TOPIC_ARN")),
+	}
+
+	req := client.PublishRequest(input)
+	result, err := req.Send(context.Background())
+	if err != nil {
+		return err
+	}
+	log.Print(result)
+
+	return nil
 }
 
 func getReleases() (Releases, error) {
